@@ -1,34 +1,25 @@
 # DeerFlow - Unified Development Environment
 
-.PHONY: help config config-upgrade check install setup doctor dev dev-daemon start start-daemon stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway
+.PHONY: help config config-upgrade check install dev dev-daemon start stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway
 
+PYTHON ?= python
 BASH ?= bash
-BACKEND_UV_RUN = cd backend && uv run
 
 # Detect OS for Windows compatibility
 ifeq ($(OS),Windows_NT)
     SHELL := cmd.exe
-    PYTHON ?= python
-    # Run repo shell scripts through Git Bash when Make is launched from cmd.exe / PowerShell.
-    RUN_WITH_GIT_BASH = call scripts\run-with-git-bash.cmd
-else
-    PYTHON ?= python3
-    RUN_WITH_GIT_BASH =
 endif
 
 help:
 	@echo "DeerFlow Development Commands:"
-	@echo "  make setup           - Interactive setup wizard (recommended for new users)"
-	@echo "  make doctor          - Check configuration and system requirements"
 	@echo "  make config          - Generate local config files (aborts if config already exists)"
 	@echo "  make config-upgrade  - Merge new fields from config.example.yaml into config.yaml"
 	@echo "  make check           - Check if all required tools are installed"
-	@echo "  make install         - Install all dependencies (frontend + backend + pre-commit hooks)"
+	@echo "  make install         - Install all dependencies (frontend + backend)"
 	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
 	@echo "  make dev             - Start all services in development mode (with hot-reloading)"
-	@echo "  make dev-daemon      - Start dev services in background (daemon mode)"
+	@echo "  make dev-daemon      - Start all services in background (daemon mode)"
 	@echo "  make start           - Start all services in production mode (optimized, no hot-reloading)"
-	@echo "  make start-daemon    - Start prod services in background (daemon mode)"
 	@echo "  make stop            - Stop all running services"
 	@echo "  make clean           - Clean up processes and temporary files"
 	@echo ""
@@ -44,18 +35,11 @@ help:
 	@echo "  make docker-logs-frontend - View Docker frontend logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
 
-## Setup & Diagnosis
-setup:
-	@$(BACKEND_UV_RUN) python ../scripts/setup_wizard.py
-
-doctor:
-	@$(BACKEND_UV_RUN) python ../scripts/doctor.py
-
 config:
 	@$(PYTHON) ./scripts/configure.py
 
 config-upgrade:
-	@$(RUN_WITH_GIT_BASH) ./scripts/config-upgrade.sh
+	@./scripts/config-upgrade.sh
 
 # Check required tools
 check:
@@ -67,8 +51,6 @@ install:
 	@cd backend && uv sync
 	@echo "Installing frontend dependencies..."
 	@cd frontend && pnpm install
-	@echo "Installing pre-commit hooks..."
-	@$(BACKEND_UV_RUN) --with pre-commit pre-commit install
 	@echo "✓ All dependencies installed"
 	@echo ""
 	@echo "=========================================="
@@ -95,7 +77,7 @@ setup-sandbox:
 	echo ""; \
 	if command -v container >/dev/null 2>&1 && [ "$$(uname)" = "Darwin" ]; then \
 		echo "Detected Apple Container on macOS, pulling image..."; \
-		container image pull "$$IMAGE" || echo "⚠ Apple Container pull failed, will try Docker"; \
+		container pull "$$IMAGE" || echo "⚠ Apple Container pull failed, will try Docker"; \
 	fi; \
 	if command -v docker >/dev/null 2>&1; then \
 		echo "Pulling image using Docker..."; \
@@ -114,27 +96,41 @@ setup-sandbox:
 
 # Start all services in development mode (with hot-reloading)
 dev:
-	@$(PYTHON) ./scripts/check.py
-	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --dev
+ifeq ($(OS),Windows_NT)
+	@echo "Detected Windows - using Git Bash..."
+	@$(BASH) ./scripts/serve.sh --dev
+else
+	@./scripts/serve.sh --dev
+endif
 
 # Start all services in production mode (with optimizations)
 start:
-	@$(PYTHON) ./scripts/check.py
-	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --prod
+ifeq ($(OS),Windows_NT)
+	@echo "Detected Windows - using Git Bash..."
+	@$(BASH) ./scripts/serve.sh --prod
+else
+	@./scripts/serve.sh --prod
+endif
 
 # Start all services in daemon mode (background)
 dev-daemon:
-	@$(PYTHON) ./scripts/check.py
-	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --dev --daemon
-
-# Start prod services in daemon mode (background)
-start-daemon:
-	@$(PYTHON) ./scripts/check.py
-	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --prod --daemon
+	@./scripts/start-daemon.sh
 
 # Stop all services
 stop:
-	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --stop
+	@echo "Stopping all services..."
+	@-pkill -f "langgraph dev" 2>/dev/null || true
+	@-pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
+	@-pkill -f "next dev" 2>/dev/null || true
+	@-pkill -f "next start" 2>/dev/null || true
+	@-pkill -f "next-server" 2>/dev/null || true
+	@-pkill -f "next-server" 2>/dev/null || true
+	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
+	@sleep 1
+	@-pkill -9 nginx 2>/dev/null || true
+	@echo "Cleaning up sandbox containers..."
+	@-./scripts/cleanup-containers.sh deer-flow-sandbox 2>/dev/null || true
+	@echo "✓ All services stopped"
 
 # Clean up
 clean: stop
@@ -150,25 +146,25 @@ clean: stop
 
 # Initialize Docker containers and install dependencies
 docker-init:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh init
+	@./scripts/docker.sh init
 
 # Start Docker development environment
 docker-start:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh start
+	@./scripts/docker.sh start
 
 # Stop Docker development environment
 docker-stop:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh stop
+	@./scripts/docker.sh stop
 
 # View Docker development logs
 docker-logs:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh logs
+	@./scripts/docker.sh logs
 
 # View Docker development logs
 docker-logs-frontend:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh logs --frontend
+	@./scripts/docker.sh logs --frontend
 docker-logs-gateway:
-	@$(RUN_WITH_GIT_BASH) ./scripts/docker.sh logs --gateway
+	@./scripts/docker.sh logs --gateway
 
 # ==========================================
 # Production Docker Commands
@@ -176,8 +172,31 @@ docker-logs-gateway:
 
 # Build and start production services
 up:
-	@$(RUN_WITH_GIT_BASH) ./scripts/deploy.sh
+	@./scripts/deploy.sh
 
 # Stop and remove production containers
 down:
-	@$(RUN_WITH_GIT_BASH) ./scripts/deploy.sh down
+	@./scripts/deploy.sh down
+
+# ============================================================================
+# Database Maintenance
+# ============================================================================
+.PHONY: db-stats db-clean db-prune db-backup db-truncate db-view-messages
+
+db-stats: ## Show PostgreSQL database statistics
+	@cd backend && uv run python ../scripts/db_maintenance.py stats
+
+db-clean: ## Interactively clean up old threads from database
+	@cd backend && uv run python ../scripts/db_maintenance.py clean
+
+db-prune: ## Prune old checkpoints from a thread while keeping recent ones
+	@cd backend && uv run python ../scripts/db_maintenance.py prune
+
+db-truncate: ## Truncate message history in a thread to last N messages
+	@cd backend && uv run python ../scripts/db_maintenance.py truncate
+
+db-view-messages: ## View message history in a thread
+	@cd backend && uv run python ../scripts/db_maintenance.py view-messages
+
+db-backup: ## Create full backup of database and project files
+	@cd backend && uv run python ../scripts/db_maintenance.py backup
