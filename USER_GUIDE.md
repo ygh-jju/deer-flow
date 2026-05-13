@@ -776,6 +776,49 @@ git log personal --oneline -10
 git checkout snapshot-pre-migration-20260512
 ```
 
+### 定期同步提醒
+
+建议每周执行一次上游同步，保持获取官方新功能和修复：
+
+| 日期 | 操作 | 备注 |
+|-----|------|------|
+| 每周一 | `git fetch upstream && git log main..upstream/main --oneline` | 检查是否有新更新 |
+| 有更新时 | 执行同步流程（见上方） | rebase 后验证 Docker 服务正常 |
+
+**设置提醒（可选）：**
+
+```bash
+# 添加 crontab 提醒（每周一上午 9 点）
+echo "0 9 * * 1 echo 'DeerFlow: Check upstream updates (cd /data/workspace_op2/deer-flow && git fetch upstream)' | mail -s 'DeerFlow Sync Reminder' \$USER" | crontab -
+```
+
+### 灾难恢复：备份位置
+
+如果发生严重问题，可以从以下备份恢复：
+
+| 备份类型 | 位置 | 内容 | 用途 |
+|---------|------|------|------|
+| Git Snapshot 分支 | `snapshot-pre-migration-20260512` | 迁移前的完整 git 状态 | 快速回退到迁移前 |
+| 物理目录备份 | `/home/yugh/workspace_op2/deer-flow-backup` | 完整项目目录（60GB） | 灾难恢复，含配置和数据 |
+| 数据库备份 | `backups/deerflow_YYYYMMDD_HHMMSS/` | PostgreSQL + threads 数据 | 对话历史恢复 |
+
+**从物理备份恢复：**
+
+```bash
+# 1. 停止当前服务
+make docker-stop
+
+# 2. 从备份恢复
+cp -r /home/yugh/workspace_op2/deer-flow-backup /data/workspace_op2/deer-flow-restored
+cd /data/workspace_op2/deer-flow-restored
+
+# 3. 重建虚拟环境（如果需要）
+cd backend && rm -rf .venv && uv sync
+
+# 4. 启动服务
+make docker-start
+```
+
 ---
 
 ## 附录：Docker 容器说明
