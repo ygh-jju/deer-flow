@@ -15,7 +15,8 @@
 7. [常见问题解决](#常见问题解决)
 8. [数据库维护操作](#数据库维护操作)
 9. [项目迁移指南](#项目迁移指南)
-10. [附录：Docker 容器说明](#附录docker-容器说明)
+10. [Git 版本管理与上游同步](#git-版本管理与上游同步)
+11. [附录：Docker 容器说明](#附录docker-容器说明)
 
 ---
 
@@ -684,6 +685,95 @@ grep -r "/home/yugh" /opt/deer-flow/.env
 
 ```bash
 cd /opt/deer-flow/docker && docker-compose -p deer-flow-dev -f docker-compose-dev.yaml up -d --force-recreate langgraph
+```
+
+---
+
+## Git 版本管理与上游同步
+
+本项目采用 **Fork + 双分支模式** 进行版本管理，确保本地定制修改能够与官方上游更新保持同步。
+
+### 分支结构说明
+
+```
+本地分支：
+  main        ← 纯净的官方代码，定期同步 upstream/main
+  personal    ← 本地定制分支，承载所有个性化修改
+  snapshot-*  ← 安全备份分支（迁移时创建，永久保留）
+
+远程仓库：
+  origin      ← https://github.com/ygh-jju/deer-flow.git (您的 Fork)
+  upstream    ← https://github.com/bytedance/deer-flow.git (官方仓库)
+```
+
+**各分支用途：**
+
+| 分支 | 来源 | 用途 | 更新频率 |
+|-----|------|------|---------|
+| `main` | upstream/main | 追踪官方最新版本，只同步不修改 | 每周/需要时 |
+| `personal` | main + 定制 | 日常工作分支，承载本地修改 | 每次定制 |
+| `snapshot-*` | 迁移前状态 | 安全备份，永不删除 | 只读 |
+
+### 定期同步官方更新
+
+**每周或需要新功能时执行：**
+
+```bash
+# 1. 切换到 main 分支，更新官方代码
+git checkout main
+git fetch upstream
+git merge upstream/main
+
+# 2. 切换到 personal 分支，同步更新
+git checkout personal
+git rebase main
+
+# 3. 如有冲突，逐个解决后继续
+#    - 冲突文件会显示差异，判断保留定制还是官方版本
+#    - 使用 git add 标记解决，git rebase --continue 继续
+
+# 4. 推送到您的 Fork
+git push origin personal --force-with-lease
+```
+
+### 冲突处理策略
+
+| 冲突类型 | 处理方式 |
+|---------|---------|
+| 定制文件（db_maintenance.py, USER_GUIDE.md） | 保留本地版本 |
+| 配置相关代码（sandbox_config.py） | 视情况合并或保留本地 |
+| 独立功能修复（dialog.tsx hydration） | 优先官方版本，必要时重新适配 |
+| 官方新功能 | 全部接受 |
+
+### 配置分离原则（减少冲突）
+
+为了减少未来同步时的冲突，本地定制尽量采用以下形式：
+
+**推荐形式（低冲突风险）：**
+- 配置文件（config.yaml, .env）— ✅ 已实现
+- 独立脚本（scripts/*.py）— ✅ 已实现
+- 文档文件（USER_GUIDE.md）— ✅ 已实现
+- 环境变量注入（sandbox environment）— ✅ 已实现
+
+**避免直接修改（高冲突风险）：**
+- 核心代码文件（backend/packages/）
+- 前端组件（frontend/src/）
+
+### 快速命令参考
+
+```bash
+# 查看当前分支状态
+git branch -vv
+
+# 检查是否落后于官方
+git fetch upstream
+git log main..upstream/main --oneline
+
+# 查看定制 commits
+git log personal --oneline -10
+
+# 紧急回退到备份状态
+git checkout snapshot-pre-migration-20260512
 ```
 
 ---
